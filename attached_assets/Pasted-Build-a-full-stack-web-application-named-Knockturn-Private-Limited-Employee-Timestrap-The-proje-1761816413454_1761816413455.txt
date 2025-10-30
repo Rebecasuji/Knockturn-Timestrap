@@ -1,0 +1,102 @@
+Build a full-stack web application named “Knockturn Private Limited — Employee Timestrap”.
+The project should include a frontend (React + Vite) and a backend (Node.js + Express + PostgreSQL).
+
+The application must have the following features and design elements:
+
+🌙 Login Page (with GSAP Lamp Animation)
+
+A modern lamp animation using GSAP. When the user pulls the lamp thread, it should glow outside the box and then navigate to the next page.
+
+The login page should have fields for:
+
+Employee ID
+
+Employee Name
+
+When the lamp is pulled, verify the user by connecting to PostgreSQL:
+
+If the employee doesn’t exist, create a new one.
+
+Then navigate to the tracker page.
+
+Page aesthetic: black and blue color theme with glowing lamp effects for a professional and futuristic appearance.
+
+🕒 Employee Tracker / Timesheet Page (TrackerPage.tsx)
+
+Automatically display:
+
+Current date and live time.
+
+Employee name and ID from login.
+
+Include a task tracker section where employees can:
+
+Add a new task (with start and end time auto-generated).
+
+Each task should have a Complete button.
+
+Automatically calculate total working time as tasks are completed.
+
+A Final Submit button to submit the day’s timesheet.
+
+Save all data (tasks, start/end time, total worked hours) in PostgreSQL.
+
+📊 Charts & Analytics Section
+
+Integrate Chart.js (via react-chartjs-2) to display:
+
+Doughnut chart: Work vs Break hours.
+
+Bar chart: Task-wise total hours.
+
+Progress chart: Productivity over the day.
+
+Data for charts should come from the employee’s timesheet and task data stored in PostgreSQL.
+
+🧠 Backend Requirements
+
+Node.js + Express server with REST APIs:
+
+/api/login → Login or register employee.
+
+/api/employees/:id/timesheet → Fetch or create a timesheet.
+
+/api/tasks → Add, complete, or update tasks.
+
+/api/submit → Submit the timesheet and calculate total work time.
+
+Store all records in PostgreSQL with these tables:
+
+employees (id, employee_id, name)
+
+timesheets (id, employee_id, date, total_work_seconds)
+
+tasks (id, timesheet_id, title, start_time, end_time, duration_seconds, is_complete)
+
+💾 Database
+
+Use PostgreSQL as the backend database.
+
+Automatically create timesheet and task entries for each employee per day.
+
+🎨 Design & Theme
+
+Theme: Black background with electric blue highlights.
+
+Components should have soft blue glows and rounded corners for a premium tech look.
+
+Include smooth animations for buttons, transitions between pages, and glowing chart cards.
+
+⚙️ Features Summary
+
+✅ Lamp pull animation with GSAP → Login verification
+✅ Auto date & time tracking
+✅ Employee task management (add, complete, submit)
+✅ Automatic total work calculation
+✅ Charts using Chart.js for productivity visualization
+✅ PostgreSQL database connection for all data
+✅ Dark (black & blue) futuristic UI theme
+
+📦 Output
+
+Generate the complete folder structure, database schema, backend APIs, and frontend pages so that it can be deployed directly on Replit as a working Timestrap system for Knockturn Private Limited employees.
