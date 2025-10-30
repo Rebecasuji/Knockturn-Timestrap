@@ -5,10 +5,15 @@ import { Card } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Plus, Send, Clock, User } from 'lucide-react';
 import { format } from 'date-fns';
+import { useToast } from '@/hooks/use-toast';
+import { useQuery, useMutation } from '@tanstack/react-query';
+import { queryClient } from '@/lib/queryClient';
 import TaskCard from '@/components/TaskCard';
 import AnalyticsCharts from '@/components/AnalyticsCharts';
+import { getTimesheet, createTask, updateTask, submitTimesheet } from '@/lib/api';
+import type { Task, Timesheet } from '@shared/schema';
 
-interface Task {
+interface LocalTask {
   id: string;
   title: string;
   startTime: Date;
@@ -18,10 +23,10 @@ interface Task {
 
 export default function TrackerPage() {
   const [, setLocation] = useLocation();
+  const { toast } = useToast();
   const [currentTime, setCurrentTime] = useState(new Date());
-  const [employee, setEmployee] = useState({ id: '', name: '' });
-  const [tasks, setTasks] = useState<Task[]>([]);
-  const [isSubmitted, setIsSubmitted] = useState(false);
+  const [employee, setEmployee] = useState({ id: '', name: '', dbId: '' });
+  const [currentTimesheet, setCurrentTimesheet] = useState<Timesheet | null>(null);
 
   useEffect(() => {
     const stored = localStorage.getItem('employee');
@@ -29,37 +34,119 @@ export default function TrackerPage() {
       setLocation('/');
       return;
     }
-    setEmployee(JSON.parse(stored));
+    const emp = JSON.parse(stored);
+    setEmployee(emp);
 
     const timer = setInterval(() => setCurrentTime(new Date()), 1000);
     return () => clearInterval(timer);
   }, [setLocation]);
 
+  const { data: timesheetData, isLoading } = useQuery({
+    queryKey: ['/api/timesheet', employee.id],
+    enabled: !!employee.id,
+    queryFn: async () => {
+      const data = await getTimesheet(employee.id);
+      setCurrentTimesheet(data.timesheet);
+      return data;
+    }
+  });
+
+  const localTasks: LocalTask[] = timesheetData?.tasks.map((t: Task) => ({
+    id: t.id,
+    title: t.title,
+    startTime: new Date(t.startTime),
+    endTime: t.endTime ? new Date(t.endTime) : undefined,
+    isComplete: t.isComplete
+  })) || [];
+
+  const createTaskMutation = useMutation({
+    mutationFn: createTask,
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['/api/timesheet', employee.id] });
+    },
+    onError: () => {
+      toast({
+        title: 'Error',
+        description: 'Failed to create task',
+        variant: 'destructive'
+      });
+    }
+  });
+
+  const updateTaskMutation = useMutation({
+    mutationFn: ({ id, data }: { id: string; data: any }) => updateTask(id, data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['/api/timesheet', employee.id] });
+    },
+    onError: () => {
+      toast({
+        title: 'Error',
+        description: 'Failed to update task',
+        variant: 'destructive'
+      });
+    }
+  });
+
+  const submitMutation = useMutation({
+    mutationFn: submitTimesheet,
+    onSuccess: () => {
+      toast({
+        title: 'Timesheet submitted!',
+        description: 'Your work has been recorded successfully.'
+      });
+      queryClient.invalidateQueries({ queryKey: ['/api/timesheet', employee.id] });
+    },
+    onError: () => {
+      toast({
+        title: 'Error',
+        description: 'Failed to submit timesheet',
+        variant: 'destructive'
+      });
+    }
+  });
+
   const addTask = () => {
-    const newTask: Task = {
-      id: Date.now().toString(),
+    if (!currentTimesheet) return;
+    
+    createTaskMutation.mutate({
+      timesheetId: currentTimesheet.id,
       title: '',
       startTime: new Date(),
+      durationSeconds: 0,
       isComplete: false
-    };
-    setTasks([...tasks, newTask]);
+    });
   };
 
   const completeTask = (id: string) => {
-    setTasks(tasks.map(task =>
-      task.id === id
-        ? { ...task, endTime: new Date(), isComplete: true }
-        : task
-    ));
+    const task = localTasks.find(t => t.id === id);
+    if (!task) return;
+
+    const endTime = new Date();
+    const durationSeconds = Math.floor((endTime.getTime() - task.startTime.getTime()) / 1000);
+
+    updateTaskMutation.mutate({
+      id,
+      data: {
+        endTime,
+        durationSeconds,
+        isComplete: true
+      }
+    });
   };
 
   const updateTaskTitle = (id: string, title: string) => {
-    setTasks(tasks.map(task =>
-      task.id === id ? { ...task, title } : task
-    ));
+    updateTaskMutation.mutate({
+      id,
+      data: { title }
+    });
   };
 
-  const totalWorkMinutes = tasks
+  const handleSubmit = () => {
+    if (!currentTimesheet) return;
+    submitMutation.mutate({ timesheetId: currentTimesheet.id });
+  };
+
+  const totalWorkMinutes = localTasks
     .filter(t => t.isComplete && t.endTime)
     .reduce((sum, t) => {
       const duration = (t.endTime!.getTime() - t.startTime.getTime()) / 1000 / 60;
@@ -69,24 +156,41 @@ export default function TrackerPage() {
   const hours = Math.floor(totalWorkMinutes / 60);
   const minutes = Math.floor(totalWorkMinutes % 60);
 
-  const taskData = tasks
+  const taskData = localTasks
     .filter(t => t.isComplete && t.title.trim())
     .map(t => ({
       title: t.title || 'Untitled',
       minutes: Math.floor((t.endTime!.getTime() - t.startTime.getTime()) / 1000 / 60)
     }));
 
-  const hourlyProductivity = [20, 45, 60, 75, 85, 90, 88, 70];
-
-  const handleSubmit = () => {
-    console.log('Submitting timesheet:', {
-      employee,
-      tasks,
-      totalMinutes: totalWorkMinutes
+  const completedTasks = localTasks.filter(t => t.isComplete && t.endTime);
+  const hourlyProductivity = Array(8).fill(0).map((_, hourIndex) => {
+    const hourStart = 9 + hourIndex;
+    const tasksInHour = completedTasks.filter(t => {
+      const taskHour = t.startTime.getHours();
+      return taskHour === hourStart;
     });
-    setIsSubmitted(true);
-    setTimeout(() => setIsSubmitted(false), 3000);
-  };
+    
+    if (tasksInHour.length === 0) return 0;
+    
+    const totalMinutesInHour = tasksInHour.reduce((sum, t) => {
+      const duration = (t.endTime!.getTime() - t.startTime.getTime()) / 1000 / 60;
+      return sum + duration;
+    }, 0);
+    
+    return Math.min(100, Math.round((totalMinutesInHour / 60) * 100));
+  });
+
+  if (isLoading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center">
+        <div className="text-center">
+          <div className="inline-block w-16 h-16 border-4 border-primary border-t-transparent rounded-full animate-spin" />
+          <p className="mt-4 text-muted-foreground">Loading timesheet...</p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-background">
@@ -151,15 +255,16 @@ export default function TrackerPage() {
                 <h2 className="text-2xl font-semibold">Tasks</h2>
                 <Button
                   onClick={addTask}
+                  disabled={createTaskMutation.isPending}
                   className="shadow-lg shadow-primary/30"
                   data-testid="button-add-task"
                 >
                   <Plus className="w-4 h-4 mr-2" />
-                  Add Task
+                  {createTaskMutation.isPending ? 'Adding...' : 'Add Task'}
                 </Button>
               </div>
 
-              {tasks.length === 0 ? (
+              {localTasks.length === 0 ? (
                 <Card className="p-12 text-center border-dashed border-primary/30">
                   <p className="text-muted-foreground">
                     No tasks yet. Click "Add Task" to get started.
@@ -167,7 +272,7 @@ export default function TrackerPage() {
                 </Card>
               ) : (
                 <div className="space-y-4">
-                  {tasks.map(task => (
+                  {localTasks.map(task => (
                     <TaskCard
                       key={task.id}
                       {...task}
@@ -183,12 +288,12 @@ export default function TrackerPage() {
               <Button
                 onClick={handleSubmit}
                 size="lg"
-                disabled={tasks.filter(t => t.isComplete).length === 0 || isSubmitted}
+                disabled={localTasks.filter(t => t.isComplete).length === 0 || submitMutation.isPending || currentTimesheet?.isSubmitted}
                 className="shadow-xl shadow-primary/40 px-8"
                 data-testid="button-submit-timesheet"
               >
                 <Send className="w-5 h-5 mr-2" />
-                {isSubmitted ? 'Submitted!' : 'Final Submit'}
+                {submitMutation.isPending ? 'Submitting...' : currentTimesheet?.isSubmitted ? 'Already Submitted' : 'Final Submit'}
               </Button>
             </div>
           </div>

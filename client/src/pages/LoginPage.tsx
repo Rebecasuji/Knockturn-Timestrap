@@ -3,26 +3,48 @@ import { useLocation } from 'wouter';
 import { Card } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { useToast } from '@/hooks/use-toast';
 import LampAnimation from '@/components/LampAnimation';
+import { login } from '@/lib/api';
 
 export default function LoginPage() {
   const [, setLocation] = useLocation();
+  const { toast } = useToast();
   const [employeeId, setEmployeeId] = useState('');
   const [employeeName, setEmployeeName] = useState('');
   const [formError, setFormError] = useState('');
+  const [isLoading, setIsLoading] = useState(false);
 
-  const handleLampPull = () => {
+  const handleLampPull = async () => {
     if (!employeeId.trim() || !employeeName.trim()) {
       setFormError('Please fill in all fields before pulling the lamp');
       return;
     }
 
-    localStorage.setItem('employee', JSON.stringify({
-      id: employeeId,
-      name: employeeName
-    }));
+    setIsLoading(true);
     
-    setLocation('/tracker');
+    try {
+      const employee = await login({
+        employeeId: employeeId.trim(),
+        name: employeeName.trim()
+      });
+
+      localStorage.setItem('employee', JSON.stringify({
+        id: employee.employeeId,
+        name: employee.name,
+        dbId: employee.id
+      }));
+      
+      toast({
+        title: 'Login successful',
+        description: `Welcome, ${employee.name}!`
+      });
+      
+      setLocation('/tracker');
+    } catch (error) {
+      setFormError('Failed to login. Please try again.');
+      setIsLoading(false);
+    }
   };
 
   return (
@@ -57,7 +79,14 @@ export default function LoginPage() {
           <p className="text-xl text-muted-foreground">Employee Timestrap</p>
         </div>
 
-        <LampAnimation onPullComplete={handleLampPull} />
+        {!isLoading && <LampAnimation onPullComplete={handleLampPull} />}
+        
+        {isLoading && (
+          <div className="text-center py-12">
+            <div className="inline-block w-16 h-16 border-4 border-primary border-t-transparent rounded-full animate-spin" />
+            <p className="mt-4 text-muted-foreground">Logging in...</p>
+          </div>
+        )}
 
         <Card
           className="p-8 bg-card/80 backdrop-blur-sm border-primary/30"
@@ -78,6 +107,7 @@ export default function LoginPage() {
                 placeholder="Enter your employee ID"
                 className="bg-background/50 border-primary/20 font-mono"
                 data-testid="input-employee-id"
+                disabled={isLoading}
               />
             </div>
 
@@ -95,6 +125,7 @@ export default function LoginPage() {
                 placeholder="Enter your full name"
                 className="bg-background/50 border-primary/20"
                 data-testid="input-employee-name"
+                disabled={isLoading}
               />
             </div>
 
